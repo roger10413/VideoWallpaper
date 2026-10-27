@@ -1,7 +1,15 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
 }
+
+// The release key lives outside the repo. Without it (e.g. a fresh clone) release builds fall back
+// to the debug key, which still installs but can't update an APK signed with the release key.
+val releaseKeyProps = File(System.getProperty("user.home"), ".android/videowallpaper/keystore.properties")
+    .takeIf { it.isFile }
+    ?.let { file -> Properties().apply { file.inputStream().use(::load) } }
 
 android {
     namespace = "com.ming.videowallpaper"
@@ -15,13 +23,23 @@ android {
         versionName = "0.1"
     }
 
+    signingConfigs {
+        if (releaseKeyProps != null) {
+            create("release") {
+                storeFile = file(releaseKeyProps.getProperty("storeFile"))
+                storePassword = releaseKeyProps.getProperty("storePassword")
+                keyAlias = releaseKeyProps.getProperty("keyAlias")
+                keyPassword = releaseKeyProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"))
-            // Personal sideloaded build: sign release with the debug key so it installs directly.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
         }
     }
 

@@ -1,10 +1,12 @@
 package com.ming.videowallpaper
 
+import android.Manifest
 import android.app.WallpaperManager
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -35,6 +37,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
@@ -48,7 +51,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedIconButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -68,12 +73,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -118,9 +128,30 @@ private fun SettingsScreen(settings: WallpaperSettings) {
     var soundOn by remember { mutableStateOf(settings.soundOn) }
     var scaleMode by remember { mutableStateOf(settings.scaleMode) }
     var isActive by remember { mutableStateOf(false) }
+    var carrierInput by remember { mutableStateOf(settings.carrierCode) }
+    var carrierNotify by remember { mutableStateOf(settings.carrierNotify) }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         isActive = isOurWallpaperActive(context)
+        // Notification permission may have been revoked in system settings meanwhile.
+        carrierNotify = settings.carrierNotify && CarrierNotification.canPost(context)
+        // Re-post in case the notification was swiped away.
+        CarrierNotification.update(context)
+    }
+
+    fun applyCarrierNotify(on: Boolean) {
+        carrierNotify = on
+        settings.carrierNotify = on
+        CarrierNotification.update(context)
+    }
+
+    val notificationPermission = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        applyCarrierNotify(granted)
+        if (!granted) {
+            Toast.makeText(context, "需要通知權限才能在鎖定畫面顯示條碼", Toast.LENGTH_LONG).show()
+        }
     }
 
     fun updatePlaylist(newList: List<Uri>) {
@@ -277,6 +308,81 @@ private fun SettingsScreen(settings: WallpaperSettings) {
             }
 
             item { SectionDivider() }
+            item { SectionTitle("發票載具") }
+            item {
+                OutlinedTextField(
+                    value = carrierInput,
+                    onValueChange = { input ->
+                        val code = input.uppercase().filterNot(Char::isWhitespace).take(8)
+                        carrierInput = code
+                        if (code.isEmpty() || Code39.isValidCarrier(code)) {
+                            settings.carrierCode = code
+                            CarrierNotification.update(context)
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("手機條碼") },
+                    placeholder = { Text("/ABC1234") },
+                    singleLine = true,
+                    isError = carrierInput.isNotEmpty() && !Code39.isValidCarrier(carrierInput),
+                    supportingText = {
+                        if (carrierInput.isNotEmpty() && !Code39.isValidCarrier(carrierInput)) {
+                            Text("格式是「/」加 7 個英數字，例如 /ABC1234")
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Characters,
+                        autoCorrectEnabled = false,
+                        keyboardType = KeyboardType.Ascii,
+                    ),
+                )
+            }
+            if (Code39.isValidCarrier(carrierInput)) {
+                item {
+                    val preview = remember(carrierInput) {
+                        Code39.render(carrierInput, moduleWidth = 3, height = 120).asImageBitmap()
+                    }
+                    Image(
+                        preview,
+                        contentDescription = "手機條碼預覽",
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp)),
+                        contentScale = ContentScale.FillWidth,
+                        filterQuality = FilterQuality.None,
+                    )
+                }
+                item {
+                    OutlinedButton(
+                        onClick = { context.startActivity(Intent(context, CarrierActivity::class.java)) },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text("全螢幕顯示條碼")
+                    }
+                }
+            }
+            item {
+                SwitchRow(
+                    "在鎖定畫面顯示（常駐通知）",
+                    carrierNotify,
+                    enabled = Code39.isValidCarrier(carrierInput),
+                ) { on ->
+                    val needsPermission = on && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED
+                    if (needsPermission) {
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        applyCarrierNotify(on)
+                    }
+                }
+            }
+            item {
+                HintText(
+                    "在鎖定畫面點一下這則通知，不用解鎖就會放大條碼，亮度也會自動調到最亮。" +
+                        "如果鎖定畫面看不到通知，請到 設定 → 通知 → 鎖定畫面，允許顯示通知內容。",
+                )
+            }
+
+            item { SectionDivider() }
             item {
                 HintText(
                     "如果桌布過一陣子變成靜止或黑畫面，請到 設定 → 應用程式 → 影片桌布 → 省電策略，改成「無限制」。",
@@ -374,16 +480,26 @@ private fun RadioRow(label: String, selected: Boolean, onSelect: () -> Unit) {
 }
 
 @Composable
-private fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+private fun SwitchRow(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onChange: (Boolean) -> Unit,
+) {
     Row(
         Modifier
             .fillMaxWidth()
-            .toggleable(value = checked, onValueChange = onChange, role = Role.Switch)
+            .toggleable(value = checked, enabled = enabled, onValueChange = onChange, role = Role.Switch)
             .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(label, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyLarge)
-        Switch(checked = checked, onCheckedChange = null)
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodyLarge,
+            color = if (enabled) Color.Unspecified else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f),
+        )
+        Switch(checked = checked, onCheckedChange = null, enabled = enabled)
     }
 }
 

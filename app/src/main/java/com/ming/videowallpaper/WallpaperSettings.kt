@@ -43,6 +43,16 @@ class WallpaperSettings(context: Context) {
         get() = enumValueOr(prefs.getString(KEY_SCALE_MODE, null), ScaleMode.FILL)
         set(value) = prefs.edit { putString(KEY_SCALE_MODE, value.name) }
 
+    /** e-invoice mobile barcode (手機條碼), e.g. "/ABC1234"; empty when not set. */
+    var carrierCode: String
+        get() = prefs.getString(KEY_CARRIER_CODE, "")!!
+        set(value) = prefs.edit { putString(KEY_CARRIER_CODE, value) }
+
+    /** Show the carrier barcode as an ongoing notification, visible on the lock screen. */
+    var carrierNotify: Boolean
+        get() = prefs.getBoolean(KEY_CARRIER_NOTIFY, false)
+        set(value) = prefs.edit { putBoolean(KEY_CARRIER_NOTIFY, value) }
+
     /** Last video the wallpaper showed, so it resumes there after a restart. Written by the engine. */
     var currentUri: Uri?
         get() = prefs.getString(KEY_CURRENT_URI, null)?.let(Uri::parse)
@@ -59,6 +69,8 @@ class WallpaperSettings(context: Context) {
         const val KEY_SOUND_ON = "sound_on"
         const val KEY_SCALE_MODE = "scale_mode"
         const val KEY_CURRENT_URI = "current_uri"
+        const val KEY_CARRIER_CODE = "carrier_code"
+        const val KEY_CARRIER_NOTIFY = "carrier_notify"
 
         val INTERVAL_CHOICES = listOf(1, 2, 3, 5, 10, 15, 20, 30, 45, 60, 90, 120)
     }

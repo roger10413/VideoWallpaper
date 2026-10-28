@@ -19,6 +19,13 @@ import kotlin.math.roundToInt
 
 class VideoWallpaperService : WallpaperService() {
 
+    override fun onCreate() {
+        super.onCreate()
+        // The system restarts the wallpaper after a reboot or app update, which clears
+        // notifications; put the carrier barcode back.
+        CarrierNotification.update(this)
+    }
+
     override fun onCreateEngine(): Engine = VideoEngine()
 
     /**
@@ -100,7 +107,9 @@ class VideoWallpaperService : WallpaperService() {
 
         override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
             when (key) {
-                WallpaperSettings.KEY_CURRENT_URI -> return
+                WallpaperSettings.KEY_CURRENT_URI,
+                WallpaperSettings.KEY_CARRIER_CODE,
+                WallpaperSettings.KEY_CARRIER_NOTIFY -> return
                 WallpaperSettings.KEY_PLAYLIST -> loadPlaylist()
                 WallpaperSettings.KEY_SOUND_ON, WallpaperSettings.KEY_SCALE_MODE -> applyOutputSettings()
                 // Start the countdown from now rather than switching at once.
